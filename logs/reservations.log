@@ -18,3 +18,5 @@
 2026-01-06 19:57:27,952 - apscheduler.scheduler - INFO - Scheduler has been shut down
 2026-01-06 19:57:27,952 - app.scheduler_service - INFO - Scheduler shut down
 2026-01-06 19:58:21,609 - main - INFO - Starting FastAPI application
+2026-01-07 00:06:00,605 - app.reservation_service - INFO - No valid session, logging in for jakubtutaxdd@gmail.com
+2026-01-07 00:06:00,719 - app.reservation_service - INFO - Login successful for jakubtutaxdd@gmail.com
