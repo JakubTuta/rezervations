@@ -44,15 +44,19 @@ class SchedulerService:
         """Load job metadata from file and reconstruct scheduler jobs"""
         if self.jobs_file.exists():
             with open(self.jobs_file, "r") as f:
-                self.job_metadata = json.load(f)
+                loaded_jobs = json.load(f)
+
+            # Filter out terminal state jobs (completed, cancelled, failed, expired, error)
+            # Only keep active jobs
+            self.job_metadata = {
+                job_id: metadata
+                for job_id, metadata in loaded_jobs.items()
+                if metadata.get("status") in ["scheduled", "running", "retrying"]
+            }
 
             # Reconstruct active scheduler jobs
-            for job_id, metadata in self.job_metadata.items():
+            for job_id, metadata in list(self.job_metadata.items()):
                 status = metadata.get("status")
-
-                # Only reconstruct jobs that are still active
-                if status not in ["scheduled", "running", "retrying"]:
-                    continue
 
                 job_type = metadata.get("job_type")
                 email = metadata.get("email")
@@ -99,16 +103,15 @@ class SchedulerService:
                                 replace_existing=True,
                             )
                         else:
-                            # Mark as expired
-                            metadata["status"] = "expired"
-                            metadata["expired_at"] = datetime.now().isoformat()
+                            # Expired - remove it
+                            del self.job_metadata[job_id]
 
                 except Exception as e:
-                    # If reconstruction fails, mark job as failed
-                    metadata["status"] = "error"
-                    metadata["error"] = f"Failed to reconstruct job on startup: {str(e)}"
+                    # If reconstruction fails, remove the job
+                    if job_id in self.job_metadata:
+                        del self.job_metadata[job_id]
 
-            # Save any status updates
+            # Save cleaned up job list
             self._save_jobs()
 
     def schedule_reservation(
@@ -163,7 +166,11 @@ class SchedulerService:
     ):
         """Execute reservation with exponential backoff retry"""
 
-        metadata = self.job_metadata.get(job_id, {})
+        # Check if job still exists (might have been cancelled)
+        if job_id not in self.job_metadata:
+            return
+
+        metadata = self.job_metadata[job_id]
         metadata["status"] = "running"
         metadata["retry_count"] = retry_count
         metadata["last_attempt"] = datetime.now().isoformat()
@@ -178,19 +185,10 @@ class SchedulerService:
             all_success = all(r.get("success", False) for r in results)
 
             if all_success:
-                metadata["status"] = "completed"
-                metadata["completed_at"] = datetime.now().isoformat()
-                metadata["results"] = [
-                    {
-                        "datetime": r["datetime"].isoformat(),
-                        "court": r["court"],
-                        "court_id": r["court_id"],
-                        "success": r["success"],
-                        "message": r.get("message", ""),
-                    }
-                    for r in results
-                ]
-                self._save_jobs()
+                # Success! Remove the job completely
+                if job_id in self.job_metadata:
+                    del self.job_metadata[job_id]
+                    self._save_jobs()
             else:
                 # Retry logic with exponential backoff
                 max_retries = metadata.get("max_retries", 6)
@@ -222,24 +220,16 @@ class SchedulerService:
                     metadata["next_retry"] = next_run.isoformat()
                     self._save_jobs()
                 else:
-                    metadata["status"] = "failed"
-                    metadata["failed_at"] = datetime.now().isoformat()
-                    metadata["results"] = [
-                        {
-                            "datetime": r["datetime"].isoformat(),
-                            "court": r.get("court"),
-                            "court_id": r["court_id"],
-                            "success": r["success"],
-                            "message": r.get("message", ""),
-                        }
-                        for r in results
-                    ]
-                    self._save_jobs()
+                    # All retries exhausted - remove the job
+                    if job_id in self.job_metadata:
+                        del self.job_metadata[job_id]
+                        self._save_jobs()
 
         except Exception as e:
-            metadata["status"] = "error"
-            metadata["error"] = str(e)
-            self._save_jobs()
+            # Error occurred - remove the job
+            if job_id in self.job_metadata:
+                del self.job_metadata[job_id]
+                self._save_jobs()
 
     def _sanitize_job_metadata(self, job: dict) -> dict:
         """Remove sensitive information from job metadata before returning to API"""
@@ -263,22 +253,22 @@ class SchedulerService:
         ]
 
     def cancel_job(self, job_id: str) -> bool:
-        """Cancel a scheduled job"""
+        """Cancel a scheduled job and remove it completely"""
         if job_id not in self.job_metadata:
             return False
 
-        # Update metadata
-        self.job_metadata[job_id]["status"] = "cancelled"
-        self.job_metadata[job_id]["cancelled_at"] = datetime.now().isoformat()
+        # Remove from metadata completely
+        del self.job_metadata[job_id]
         self._save_jobs()
 
         # Remove from scheduler
         try:
             self.scheduler.remove_job(job_id)
-            return True
         except:
             # Job might not exist in scheduler (already executed)
-            return True
+            pass
+
+        return True
 
     def schedule_cancellation_watcher(
         self, email: str, password: str, reservation_datetime: datetime, hours: int, num_courts: int = 1
@@ -337,21 +327,22 @@ class SchedulerService:
     ):
         """Check if slots are available and book them, or stop if time has passed"""
 
-        metadata = self.job_metadata.get(job_id, {})
-
-        # Check if job was cancelled
-        if metadata.get("status") == "cancelled":
+        # Check if job still exists (might have been cancelled/deleted)
+        if job_id not in self.job_metadata:
             try:
                 self.scheduler.remove_job(job_id)
             except:
                 pass
             return
 
+        metadata = self.job_metadata[job_id]
+
         # Check if current time is past the reservation time
         if datetime.now() >= reservation_datetime:
-            metadata["status"] = "expired"
-            metadata["expired_at"] = datetime.now().isoformat()
-            self._save_jobs()
+            # Remove expired job completely
+            if job_id in self.job_metadata:
+                del self.job_metadata[job_id]
+                self._save_jobs()
             try:
                 self.scheduler.remove_job(job_id)
             except:
@@ -374,20 +365,10 @@ class SchedulerService:
             all_success = all(r.get("success", False) for r in results)
 
             if all_success:
-                # Success! Stop the recurring job
-                metadata["status"] = "completed"
-                metadata["completed_at"] = datetime.now().isoformat()
-                metadata["results"] = [
-                    {
-                        "datetime": r["datetime"].isoformat(),
-                        "court": r["court"],
-                        "court_id": r["court_id"],
-                        "success": r["success"],
-                        "message": r.get("message", ""),
-                    }
-                    for r in results
-                ]
-                self._save_jobs()
+                # Success! Remove the job completely
+                if job_id in self.job_metadata:
+                    del self.job_metadata[job_id]
+                    self._save_jobs()
 
                 try:
                     self.scheduler.remove_job(job_id)

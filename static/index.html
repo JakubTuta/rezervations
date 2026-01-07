@@ -557,7 +557,7 @@
             const timeSelects = ['cont-time', 'find-time', 'watch-time', 'cont-end-time', 'find-end-time', 'watch-end-time'];
             timeSelects.forEach(selectId => {
                 const select = document.getElementById(selectId);
-                for (let hour = 6; hour < 19; hour++) {
+                for (let hour = 6; hour < 20; hour++) {
                     const timeStr = `${hour.toString().padStart(2, '0')}:30`;
                     const option = document.createElement('option');
                     option.value = timeStr;

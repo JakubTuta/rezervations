@@ -70,9 +70,20 @@ async def make_continuous_reservations(request: Route1Request):
                 )
 
             # Make immediate reservations
-            results = service.make_continuous_reservations(
-                reservation_datetime, request.hours, request.num_courts
-            )
+            # If end_time is specified, search within the time window
+            if request.end_time:
+                results = service.find_slot_in_time_window(
+                    reservation_datetime,
+                    request.start_time,
+                    request.end_time,
+                    request.hours,
+                    request.num_courts,
+                )
+            else:
+                # Try to book at the exact start time
+                results = service.make_continuous_reservations(
+                    reservation_datetime, request.hours, request.num_courts
+                )
 
             # Convert to response format
             reservation_results = []
@@ -123,6 +134,10 @@ async def find_available_slot(request: Route2Request):
         date_str = request.date or get_today_date_str()
         current_datetime = parse_date_time(date_str, request.start_time)
 
+        # If no date was provided and the calculated datetime is in the past, use tomorrow
+        if not request.date and current_datetime < datetime.now():
+            current_datetime += timedelta(days=1)
+
         # Acquire lock for this email
         lock = session_manager.get_lock(request.email)
 
@@ -167,12 +182,22 @@ async def find_available_slot(request: Route2Request):
                     )
 
                 # Try to make reservations
-                results = service.make_continuous_reservations(
-                    current_datetime, request.hours, request.num_courts
-                )
+                # If end_time is specified, search within the time window on this day
+                if request.end_time:
+                    results = service.find_slot_in_time_window(
+                        current_datetime,
+                        request.start_time,
+                        request.end_time,
+                        request.hours,
+                        request.num_courts,
+                    )
+                else:
+                    results = service.make_continuous_reservations(
+                        current_datetime, request.hours, request.num_courts
+                    )
 
                 # Check if all succeeded (continuous requirement)
-                all_success = all(r.get("success", False) for r in results)
+                all_success = results and all(r.get("success", False) for r in results)
 
                 if all_success:
                     # Success! Return results
@@ -226,7 +251,8 @@ async def find_available_slot(request: Route2Request):
 async def watch_for_cancellations(request: Route3Request):
     """
     Route 3: Watch for cancellations and book when slots become available.
-    Creates a recurring job that checks every 30 minutes (at XX:00 and XX:30).
+    First tries to book immediately. If slots not available, creates a recurring job
+    that checks every 30 minutes (at XX:00 and XX:30).
     Stops when slots are booked successfully or reservation time has passed.
     """
 
@@ -248,7 +274,51 @@ async def watch_for_cancellations(request: Route3Request):
                     stats={"successful": 0, "failed": 1, "scheduled": 0},
                 )
 
-            # Schedule the cancellation watcher
+            # First, try to book immediately
+            service = session_manager.get_service(request.email, request.password)
+
+            # If end_time is specified, search within the time window
+            if request.end_time:
+                results = service.find_slot_in_time_window(
+                    reservation_datetime,
+                    request.start_time,
+                    request.end_time,
+                    request.hours,
+                    request.num_courts,
+                )
+            else:
+                # Try to book at the exact start time
+                results = service.make_continuous_reservations(
+                    reservation_datetime, request.hours, request.num_courts
+                )
+
+            # Check if booking was successful
+            if results and all(r.get("success", False) for r in results):
+                # Successfully booked! Return results
+                reservation_results = []
+                for r in results:
+                    dt = r["datetime"]
+                    dt_end = dt + timedelta(hours=1)
+                    reservation_results.append(
+                        ReservationResult(
+                            date=dt.strftime("%d-%m-%Y"),
+                            time_slot=f"{dt.strftime('%H:%M')}-{dt_end.strftime('%H:%M')}",
+                            court=r["court"],
+                            court_id=r["court_id"],
+                            success=r["success"],
+                            error_message=None,
+                        )
+                    )
+
+                return ReservationResponse(
+                    error=False,
+                    message=f"Slots were available! Successfully booked {len(results)} hours",
+                    reservations=reservation_results,
+                    scheduled_jobs=[],
+                    stats={"successful": len(results), "failed": 0, "scheduled": 0},
+                )
+
+            # Slots not available - create watcher job
             job_id = scheduler_service.schedule_cancellation_watcher(
                 email=request.email,
                 password=request.password,
@@ -262,7 +332,7 @@ async def watch_for_cancellations(request: Route3Request):
 
             return ReservationResponse(
                 error=False,
-                message=f"Cancellation watcher started. Will check every 30 minutes starting at {next_run.strftime('%Y-%m-%d %H:%M')}",
+                message=f"Slots not currently available. Cancellation watcher started. Will check every 30 minutes starting at {next_run.strftime('%Y-%m-%d %H:%M')}",
                 reservations=[],
                 scheduled_jobs=[
                     ScheduledJobInfo(

@@ -115,11 +115,21 @@ class ReservationService:
 
             if response.status_code == 200:
                 result = response.json()
+                success = not result.get("error", True)
+
+                # Extract reservation ID from successful booking
+                reservation_id = None
+                if success:
+                    # Try to extract ID from response message or other fields
+                    # The ID might be in the response somewhere
+                    reservation_id = result.get("id") or result.get("reservation_id")
+
                 return {
-                    "success": not result.get("error", True),
+                    "success": success,
                     "message": result.get("msg", ""),
                     "datetime": dt_start,
                     "court_id": court_id,
+                    "reservation_id": reservation_id,
                 }
             else:
                 return {
@@ -127,6 +137,7 @@ class ReservationService:
                     "message": f"HTTP {response.status_code}",
                     "datetime": dt_start,
                     "court_id": court_id,
+                    "reservation_id": None,
                 }
         except Exception as e:
             return {
@@ -134,12 +145,17 @@ class ReservationService:
                 "message": str(e),
                 "datetime": dt_start,
                 "court_id": court_id,
+                "reservation_id": None,
             }
 
     def make_continuous_reservations(
         self, start_datetime: datetime, hours: int, num_courts: int = 1
     ) -> List[Dict]:
-        """Make continuous reservations on num_courts courts simultaneously"""
+        """
+        Make continuous reservations for the specified hours.
+        Courts can change between hours, but we try to keep the same courts for continuity.
+        Returns results only if we successfully book all requested hours.
+        """
         if not self.ensure_authenticated():
             return [
                 {
@@ -151,58 +167,135 @@ class ReservationService:
                 }
             ]
 
-        # Generate court index combinations
+        # Generate court index combinations, prioritizing sequential courts
         court_indices = list(range(4))
         court_combinations = list(combinations(court_indices, num_courts))
 
-        # Prioritize sequential courts (adjacent courts)
         def is_sequential(combo):
             if len(combo) == 1:
                 return True
-            return all(combo[i+1] - combo[i] == 1 for i in range(len(combo)-1))
+            return all(combo[i + 1] - combo[i] == 1 for i in range(len(combo) - 1))
 
         sequential = [c for c in court_combinations if is_sequential(c)]
         non_sequential = [c for c in court_combinations if not is_sequential(c)]
         sorted_combinations = sequential + non_sequential
 
-        # Try each combination
+        # Track ALL reservations created during this call
+        all_created_reservations = []
         results = []
-        for court_combo in sorted_combinations:
-            results = []
-            all_success = True
+        last_used_courts = None
 
-            # Try to book all hours on all courts in this combination
-            for hour in range(hours):
-                current_time = start_datetime + timedelta(hours=hour)
+        # Try to book each hour consecutively
+        for hour in range(hours):
+            current_time = start_datetime + timedelta(hours=hour)
+            hour_booked = False
 
-                # Book this hour on all courts in the combination
-                for court_index in court_combo:
+            # If we used specific courts in the previous hour, try to continue on them first
+            if last_used_courts is not None:
+                hour_results = []
+                all_success = True
+
+                for court_index in last_used_courts:
                     court_id = self.COURT_IDS[court_index]
                     result = self.make_single_reservation(current_time, court_id)
-                    results.append({
+                    result_with_meta = {
                         **result,
                         "court": court_index + 1,
-                        "hour_index": hour
-                    })
+                        "hour_index": hour,
+                    }
 
-                    # If any reservation fails, this combination doesn't work
-                    if not result["success"]:
+                    if result["success"]:
+                        hour_results.append(result_with_meta)
+                        all_created_reservations.append(result_with_meta)
+                    else:
                         all_success = False
                         break
 
-                # If a reservation failed, stop trying this combination
-                if not all_success:
-                    break
+                if all_success:
+                    results.extend(hour_results)
+                    hour_booked = True
 
-            # If all reservations succeeded on this combination, we're done!
-            if all_success:
-                # Clean up any unwanted reservations from failed attempts
-                self._cleanup_unwanted_reservations(results)
+            # If preferred courts didn't work, try any available combination
+            if not hour_booked:
+                for court_combo in sorted_combinations:
+                    hour_results = []
+                    all_success = True
+
+                    for court_index in court_combo:
+                        court_id = self.COURT_IDS[court_index]
+                        result = self.make_single_reservation(current_time, court_id)
+                        result_with_meta = {
+                            **result,
+                            "court": court_index + 1,
+                            "hour_index": hour,
+                        }
+
+                        if result["success"]:
+                            hour_results.append(result_with_meta)
+                            all_created_reservations.append(result_with_meta)
+                        else:
+                            all_success = False
+                            break
+
+                    if all_success:
+                        results.extend(hour_results)
+                        last_used_courts = court_combo
+                        hour_booked = True
+                        break
+
+            # If we couldn't book this hour at all, the entire attempt failed
+            if not hour_booked:
+                # Clean up ALL reservations created in this call
+                self._cleanup_unwanted_reservations([], all_created_reservations)
+                return [
+                    {
+                        "success": False,
+                        "message": f"Could not find available courts for hour {hour + 1} at {current_time.strftime('%H:%M')}",
+                        "datetime": current_time,
+                        "court_id": None,
+                        "court": None,
+                    }
+                ]
+
+        # Successfully booked all hours!
+        # Clean up any unwanted reservations from failed court attempts
+        self._cleanup_unwanted_reservations(results, all_created_reservations)
+        return results
+
+    def find_slot_in_time_window(
+        self, date: datetime, start_time_str: str, end_time_str: str, hours: int, num_courts: int = 1
+    ) -> List[Dict]:
+        """
+        Search for available slot within a time window on a specific date.
+        Tries every 30-minute interval from start_time to end_time.
+        Returns empty list if no slot found.
+        """
+        # Parse start and end times
+        start_h, start_m = map(int, start_time_str.split(':'))
+        end_h, end_m = map(int, end_time_str.split(':'))
+
+        # Create datetime objects for the search window
+        search_start = date.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        search_end = date.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+
+        # Calculate the latest possible start time for the requested hours
+        required_duration = timedelta(hours=hours)
+        latest_start = search_end - required_duration
+
+        # Try every 30-minute slot within the window
+        current_slot = search_start
+        while current_slot <= latest_start:
+            results = self.make_continuous_reservations(current_slot, hours, num_courts)
+
+            # Check if all succeeded
+            if results and all(r.get("success", False) for r in results):
                 return results
 
-        # If we get here, no combination worked
-        # Return the last attempt's results (which will show failures)
-        return results
+            # Move to next 30-minute slot
+            current_slot += timedelta(minutes=30)
+
+        # No slot found in this time window
+        return []
 
     @staticmethod
     def is_within_booking_window(target_datetime: datetime) -> bool:
@@ -226,18 +319,18 @@ class ReservationService:
             if response.status_code != 200:
                 return []
 
-            soup = BeautifulSoup(response.text, 'html.parser')
+            soup = BeautifulSoup(response.text, "html.parser")
             reservations = []
 
             # Find all table rows in the reservations table
-            table = soup.find('table', id='pricelist')
+            table = soup.find("table", id="pricelist")
             if not table:
                 return []
 
-            rows = table.find('tbody').find_all('tr')
+            rows = table.find("tbody").find_all("tr")
 
             for row in rows:
-                cells = row.find_all('td')
+                cells = row.find_all("td")
                 if len(cells) < 4:
                     continue
 
@@ -254,7 +347,7 @@ class ReservationService:
                 reservation_id = id_cell.get_text(strip=True)
 
                 # Parse court number from text like "Kort 1"
-                court_match = re.search(r'Kort\s+(\d+)', name_text)
+                court_match = re.search(r"Kort\s+(\d+)", name_text)
                 court_number = int(court_match.group(1)) if court_match else None
 
                 # Parse datetime (format: "DD.MM.YYYY HH:MM")
@@ -263,12 +356,14 @@ class ReservationService:
                 except:
                     continue
 
-                reservations.append({
-                    'reservation_id': reservation_id,
-                    'datetime': reservation_dt,
-                    'court_number': court_number,
-                    'raw_text': name_text
-                })
+                reservations.append(
+                    {
+                        "reservation_id": reservation_id,
+                        "datetime": reservation_dt,
+                        "court_number": court_number,
+                        "raw_text": name_text,
+                    }
+                )
 
             return reservations
 
@@ -276,49 +371,57 @@ class ReservationService:
             # Silently fail - don't break the booking if scraping fails
             return []
 
-    def _cleanup_unwanted_reservations(self, successful_results: List[Dict]) -> int:
+    def _cleanup_unwanted_reservations(
+        self, successful_results: List[Dict], all_created_reservations: List[Dict]
+    ) -> int:
         """
-        Cancel unwanted reservations that were made during failed combination attempts.
+        Cancel unwanted reservations that were made during THIS API call but are not in the final successful result.
+        Only cancels reservations created during failed combination attempts in this call.
         Returns the number of reservations cancelled.
         """
-        if not successful_results:
+        if not successful_results or not all_created_reservations:
             return 0
 
         try:
-            # Get all current reservations
+            # Build a set of (datetime, court_number) tuples for successful reservations
+            successful_slots = set()
+            for result in successful_results:
+                dt = result["datetime"]
+                court = result.get("court")
+                if dt and court:
+                    successful_slots.add((dt, court))
+
+            # Find reservations created in THIS call that are NOT in the final successful results
+            to_cancel_by_slot = []
+            for created in all_created_reservations:
+                dt = created["datetime"]
+                court = created.get("court")
+
+                # If this reservation is not in the successful final result, we need to cancel it
+                if (dt, court) not in successful_slots:
+                    to_cancel_by_slot.append((dt, court))
+
+            # If nothing to cancel, we're done
+            if not to_cancel_by_slot:
+                return 0
+
+            # Scrape the reservations page to get reservation IDs
             all_reservations = self._scrape_reservations()
             if not all_reservations:
                 return 0
 
-            # Build a set of (datetime, court_number) tuples for successful reservations
-            successful_slots = set()
-            for result in successful_results:
-                dt = result['datetime']
-                court = result.get('court')
-                if dt and court:
-                    successful_slots.add((dt, court))
-
-            # Determine the time range of our booking
-            min_dt = min(r['datetime'] for r in successful_results)
-            max_dt = max(r['datetime'] for r in successful_results)
-
-            # Find reservations to cancel:
-            # - Within our booking time range
-            # - NOT in the successful results
-            to_cancel = []
+            # Match the reservations we want to cancel with their IDs
+            to_cancel_ids = []
             for reservation in all_reservations:
-                res_dt = reservation['datetime']
-                res_court = reservation['court_number']
+                res_dt = reservation["datetime"]
+                res_court = reservation["court_number"]
 
-                # Check if this reservation is within our booking range
-                if min_dt <= res_dt <= max_dt:
-                    # Check if it's NOT in our successful results
-                    if (res_dt, res_court) not in successful_slots:
-                        to_cancel.append(reservation['reservation_id'])
+                if (res_dt, res_court) in to_cancel_by_slot:
+                    to_cancel_ids.append(reservation["reservation_id"])
 
-            # Cancel unwanted reservations
+            # Cancel the unwanted reservations
             cancelled_count = 0
-            for reservation_id in to_cancel:
+            for reservation_id in to_cancel_ids:
                 try:
                     cancel_url = f"{self.BASE_URL}/index.php?s=moje_konto_zajecia&a=anuluj&id={reservation_id}"
                     response = self.session.get(cancel_url, timeout=10)

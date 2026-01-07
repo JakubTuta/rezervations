@@ -8,7 +8,7 @@ class Route1Request(BaseModel):
     date: str = Field(..., description="DD-MM-YYYY format")
     start_time: str = Field(..., description="HH:MM format (must be XX:30)")
     hours: int = Field(..., gt=0, description="Number of hours to reserve")
-    end_time: Optional[str] = Field(None, description="HH:MM format (must be XX:30) - optional time window limit")
+    end_time: Optional[str] = Field(None, description="HH:MM format (must be XX:30) - optional search window upper limit")
     num_courts: int = Field(1, ge=1, le=4, description="Number of courts to reserve (1-4)")
     email: EmailStr
     password: str
@@ -22,7 +22,7 @@ class Route1Request(BaseModel):
 
     @model_validator(mode='after')
     def validate_time_window(self):
-        # If end_time is provided, calculate the window
+        # If end_time is provided, validate it defines a valid search window
         if self.end_time:
             start_h, start_m = map(int, self.start_time.split(':'))
             end_h, end_m = map(int, self.end_time.split(':'))
@@ -32,20 +32,14 @@ class Route1Request(BaseModel):
             if end_minutes <= start_minutes:
                 raise ValueError('End time must be after start time')
 
-            duration_minutes = end_minutes - start_minutes
-            if duration_minutes % 60 != 0:
-                raise ValueError('Time window must be in whole hours')
+            # Validate that the time window can fit the requested hours
+            window_minutes = end_minutes - start_minutes
+            required_minutes = self.hours * 60
 
-            window_hours = duration_minutes // 60
-
-            # If window is smaller than requested hours, use requested hours
-            # Otherwise, use the window duration
-            if window_hours < self.hours:
-                # Keep self.hours as is (prioritize hours over end_time)
-                pass
-            else:
-                # Use the window duration
-                self.hours = window_hours
+            if window_minutes < required_minutes:
+                raise ValueError(
+                    f'Time window ({window_minutes // 60}h) is too small for {self.hours} hours'
+                )
 
         return self
 
@@ -54,7 +48,7 @@ class Route2Request(BaseModel):
     """Find any continuous slot after given time"""
     start_time: str = Field(..., description="HH:MM format (must be XX:30)")
     hours: int = Field(..., gt=0, description="Number of hours to reserve")
-    end_time: Optional[str] = Field(None, description="HH:MM format (must be XX:30) - optional time window limit")
+    end_time: Optional[str] = Field(None, description="HH:MM format (must be XX:30) - optional search window upper limit")
     num_courts: int = Field(1, ge=1, le=4, description="Number of courts to reserve (1-4)")
     email: EmailStr
     password: str
@@ -69,7 +63,7 @@ class Route2Request(BaseModel):
 
     @model_validator(mode='after')
     def validate_time_window(self):
-        # If end_time is provided, calculate the window
+        # If end_time is provided, validate it defines a valid search window
         if self.end_time:
             start_h, start_m = map(int, self.start_time.split(':'))
             end_h, end_m = map(int, self.end_time.split(':'))
@@ -79,20 +73,14 @@ class Route2Request(BaseModel):
             if end_minutes <= start_minutes:
                 raise ValueError('End time must be after start time')
 
-            duration_minutes = end_minutes - start_minutes
-            if duration_minutes % 60 != 0:
-                raise ValueError('Time window must be in whole hours')
+            # Validate that the time window can fit the requested hours
+            window_minutes = end_minutes - start_minutes
+            required_minutes = self.hours * 60
 
-            window_hours = duration_minutes // 60
-
-            # If window is smaller than requested hours, use requested hours
-            # Otherwise, use the window duration
-            if window_hours < self.hours:
-                # Keep self.hours as is (prioritize hours over end_time)
-                pass
-            else:
-                # Use the window duration
-                self.hours = window_hours
+            if window_minutes < required_minutes:
+                raise ValueError(
+                    f'Time window ({window_minutes // 60}h) is too small for {self.hours} hours'
+                )
 
         return self
 
@@ -102,7 +90,7 @@ class Route3Request(BaseModel):
     date: str = Field(..., description="DD-MM-YYYY format")
     start_time: str = Field(..., description="HH:MM format (must be XX:30)")
     hours: int = Field(..., gt=0, description="Number of hours to reserve")
-    end_time: Optional[str] = Field(None, description="HH:MM format (must be XX:30) - optional time window limit")
+    end_time: Optional[str] = Field(None, description="HH:MM format (must be XX:30) - optional search window upper limit")
     num_courts: int = Field(1, ge=1, le=4, description="Number of courts to reserve (1-4)")
     email: EmailStr
     password: str
@@ -116,7 +104,7 @@ class Route3Request(BaseModel):
 
     @model_validator(mode='after')
     def validate_time_window(self):
-        # If end_time is provided, calculate the window
+        # If end_time is provided, validate it defines a valid search window
         if self.end_time:
             start_h, start_m = map(int, self.start_time.split(':'))
             end_h, end_m = map(int, self.end_time.split(':'))
@@ -126,20 +114,14 @@ class Route3Request(BaseModel):
             if end_minutes <= start_minutes:
                 raise ValueError('End time must be after start time')
 
-            duration_minutes = end_minutes - start_minutes
-            if duration_minutes % 60 != 0:
-                raise ValueError('Time window must be in whole hours')
+            # Validate that the time window can fit the requested hours
+            window_minutes = end_minutes - start_minutes
+            required_minutes = self.hours * 60
 
-            window_hours = duration_minutes // 60
-
-            # If window is smaller than requested hours, use requested hours
-            # Otherwise, use the window duration
-            if window_hours < self.hours:
-                # Keep self.hours as is (prioritize hours over end_time)
-                pass
-            else:
-                # Use the window duration
-                self.hours = window_hours
+            if window_minutes < required_minutes:
+                raise ValueError(
+                    f'Time window ({window_minutes // 60}h) is too small for {self.hours} hours'
+                )
 
         return self
 
