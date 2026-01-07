@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sports Court Reservations</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .card h2 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .card h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.2rem;
+        }
+
+        .credentials-section {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+
+        .credentials-section h3 {
+            margin-bottom: 15px;
+            color: #4a5568;
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .form-field {
+            margin-bottom: 15px;
+        }
+
+        .form-field label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+
+        .form-field input,
+        .form-field select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+
+        .form-field input:focus,
+        .form-field select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #718096;
+            transition: all 0.3s;
+        }
+
+        .tab:hover {
+            color: #667eea;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .route-description {
+            background: #edf2f7;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 0.95rem;
+            color: #4a5568;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #718096;
+            margin-top: 0;
+            padding: 10px 20px;
+            width: auto;
+        }
+
+        .btn-danger {
+            background: #f56565;
+        }
+
+        .results {
+            margin-top: 20px;
+        }
+
+        .result-message {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+
+        .result-message.success {
+            background: #c6f6d5;
+            color: #22543d;
+            border-left: 4px solid #38a169;
+        }
+
+        .result-message.error {
+            background: #fed7d7;
+            color: #742a2a;
+            border-left: 4px solid #f56565;
+        }
+
+        .result-message.info {
+            background: #bee3f8;
+            color: #2c5282;
+            border-left: 4px solid #4299e1;
+        }
+
+        .reservations-list {
+            margin-top: 15px;
+        }
+
+        .reservation-item {
+            background: #f7fafc;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .reservation-item.success {
+            border-left: 4px solid #38a169;
+        }
+
+        .reservation-item.failed {
+            border-left: 4px solid #f56565;
+        }
+
+        .job-item {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border-left: 4px solid #667eea;
+        }
+
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 10px;
+        }
+
+        .job-type {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .job-type.one-time {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+
+        .job-type.recurring {
+            background: #feebc8;
+            color: #7c2d12;
+        }
+
+        .job-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .job-status.scheduled { background: #bee3f8; color: #2c5282; }
+        .job-status.running { background: #feebc8; color: #7c2d12; }
+        .job-status.retrying { background: #fbd38d; color: #744210; }
+        .job-status.completed { background: #c6f6d5; color: #22543d; }
+        .job-status.failed { background: #fed7d7; color: #742a2a; }
+        .job-status.cancelled { background: #e2e8f0; color: #4a5568; }
+        .job-status.expired { background: #e2e8f0; color: #4a5568; }
+
+        .job-details {
+            font-size: 0.9rem;
+            color: #4a5568;
+            margin-top: 8px;
+        }
+
+        .job-details div {
+            margin-bottom: 4px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #718096;
+        }
+
+        .spinner {
+            border: 3px solid #f3f4f6;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #718096;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 15px;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 768px) {
+            .input-group {
+                grid-template-columns: 1fr;
+            }
+
+            .tabs {
+                flex-direction: column;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎾 Rezerwacje Kortów - Zatoka Sportu</h1>
+            <p>Rezerwuj korty tenisowe z łatwością</p>
+        </div>
+
+        <!-- Credentials Card -->
+        <div class="card">
+            <div class="credentials-section">
+                <h3>Twoje Dane Logowania</h3>
+                <p style="margin-bottom: 15px; font-size: 0.9rem; color: #4a5568;">
+                    Użyj danych z konta Zatoka Sportu (<a href="https://klient.zatokasportu.pl" target="_blank" style="color: #667eea;">klient.zatokasportu.pl</a>)
+                </p>
+                <div class="input-group">
+                    <div class="form-field">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" placeholder="twoj@email.com" required>
+                    </div>
+                    <div class="form-field">
+                        <label for="password">Hasło</label>
+                        <input type="password" id="password" placeholder="••••••••" required>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Route Selection Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="switchTab('continuous')">Zarezerwuj Teraz</button>
+                <button class="tab" onclick="switchTab('find-slot')">Znajdź Termin</button>
+                <button class="tab" onclick="switchTab('watch')">Obserwuj Anulowania</button>
+            </div>
+
+            <!-- Tab 1: Continuous Reservation -->
+            <div id="continuous-tab" class="tab-content active">
+                <div class="route-description">
+                    Rezerwuj ciągłe godziny na tym samym korcie. Jeśli termin jest dalej niż 15 dni, zaplanujemy rezerwację automatycznie.
+                </div>
+                <div class="form-field">
+                    <label for="cont-date">Data</label>
+                    <small style="display: block; color: #718096; margin-bottom: 5px;">Wybierz dzień rezerwacji</small>
+                    <input type="date" id="cont-date" required>
+                </div>
+                <div class="input-group">
+                    <div class="form-field">
+                        <label for="cont-time">Godzina Rozpoczęcia</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Od której godziny szukać wolnych terminów (tylko XX:30)</small>
+                        <select id="cont-time" required>
+                            <option value="">Wybierz godzinę...</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="cont-hours">Liczba Godzin (wymagane)</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Ile godzin chcesz zarezerwować</small>
+                        <select id="cont-hours" required>
+                            <option value="">Wybierz...</option>
+                            <option value="1">1 godzina</option>
+                            <option value="2">2 godziny</option>
+                            <option value="3">3 godziny</option>
+                            <option value="4">4 godziny</option>
+                            <option value="5">5 godzin</option>
+                            <option value="6">6 godzin</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="cont-end-time">Godzina Zakończenia (opcjonalnie)</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Górny limit przedziału czasowego - np. dla 2h między 6:30 a 12:30</small>
+                        <select id="cont-end-time">
+                            <option value="">Brak limitu...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label for="cont-courts">Liczba Kortów (1-4)</label>
+                    <small style="display: block; color: #718096; margin-bottom: 5px;">Ile kortów jednocześnie (najlepiej sąsiadujące)</small>
+                    <input type="number" id="cont-courts" min="1" max="4" value="1" required>
+                </div>
+                <button class="btn" onclick="submitContinuous()" id="btn-continuous">Zarezerwuj</button>
+            </div>
+
+            <!-- Tab 2: Find Slot -->
+            <div id="find-slot-tab" class="tab-content">
+                <div class="route-description">
+                    Znajdź pierwszy dostępny ciągły termin w ciągu najbliższych 15 dni. System automatycznie przeszuka kolejne dni.
+                </div>
+                <div class="form-field">
+                    <label for="find-date">Data Początkowa (opcjonalnie)</label>
+                    <small style="display: block; color: #718096; margin-bottom: 5px;">Zostaw puste aby zacząć od dzisiaj</small>
+                    <input type="date" id="find-date">
+                </div>
+                <div class="input-group">
+                    <div class="form-field">
+                        <label for="find-time">Godzina Rozpoczęcia</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Od której godziny szukać wolnych terminów (tylko XX:30)</small>
+                        <select id="find-time" required>
+                            <option value="">Wybierz godzinę...</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="find-hours">Liczba Godzin (wymagane)</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Ile kolejnych godzin potrzebujesz</small>
+                        <select id="find-hours" required>
+                            <option value="">Wybierz...</option>
+                            <option value="1">1 godzina</option>
+                            <option value="2">2 godziny</option>
+                            <option value="3">3 godziny</option>
+                            <option value="4">4 godziny</option>
+                            <option value="5">5 godzin</option>
+                            <option value="6">6 godzin</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="find-end-time">Godzina Zakończenia (opcjonalnie)</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Górny limit przedziału czasowego - np. dla 2h między 6:30 a 12:30</small>
+                        <select id="find-end-time">
+                            <option value="">Brak limitu...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label for="find-courts">Liczba Kortów (1-4)</label>
+                    <small style="display: block; color: #718096; margin-bottom: 5px;">Ile kortów jednocześnie</small>
+                    <input type="number" id="find-courts" min="1" max="4" value="1" required>
+                </div>
+                <button class="btn" onclick="submitFindSlot()" id="btn-find">Znajdź i Zarezerwuj</button>
+            </div>
+
+            <!-- Tab 3: Watch for Cancellations -->
+            <div id="watch-tab" class="tab-content">
+                <div class="route-description">
+                    Stwórz obserwator który sprawdza dostępność co 30 minut. Automatycznie rezerwuje gdy znajdzie wolny termin!
+                </div>
+                <div class="form-field">
+                    <label for="watch-date">Data</label>
+                    <small style="display: block; color: #718096; margin-bottom: 5px;">Wybierz dzień który chcesz obserwować</small>
+                    <input type="date" id="watch-date" required>
+                </div>
+                <div class="input-group">
+                    <div class="form-field">
+                        <label for="watch-time">Godzina Rozpoczęcia</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Od której godziny obserwować (tylko XX:30)</small>
+                        <select id="watch-time" required>
+                            <option value="">Wybierz godzinę...</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="watch-hours">Liczba Godzin (wymagane)</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Ile godzin potrzebujesz</small>
+                        <select id="watch-hours" required>
+                            <option value="">Wybierz...</option>
+                            <option value="1">1 godzina</option>
+                            <option value="2">2 godziny</option>
+                            <option value="3">3 godziny</option>
+                            <option value="4">4 godziny</option>
+                            <option value="5">5 godzin</option>
+                            <option value="6">6 godzin</option>
+                        </select>
+                    </div>
+                    <div class="form-field">
+                        <label for="watch-end-time">Godzina Zakończenia (opcjonalnie)</label>
+                        <small style="display: block; color: #718096; margin-bottom: 5px;">Górny limit przedziału czasowego - np. dla 2h między 6:30 a 12:30</small>
+                        <select id="watch-end-time">
+                            <option value="">Brak limitu...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label for="watch-courts">Liczba Kortów (1-4)</label>
+                    <small style="display: block; color: #718096; margin-bottom: 5px;">Ile kortów jednocześnie</small>
+                    <input type="number" id="watch-courts" min="1" max="4" value="1" required>
+                </div>
+                <button class="btn" onclick="submitWatch()" id="btn-watch">Uruchom Obserwator</button>
+            </div>
+        </div>
+
+        <!-- Reservation Results Card -->
+        <div class="card" id="results-card" style="display: none;">
+            <h2>Wyniki Rezerwacji</h2>
+            <div id="results" class="results"></div>
+        </div>
+
+        <!-- Scheduled Jobs Card -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Zaplanowane Zadania</h2>
+                <button class="btn btn-secondary" onclick="loadJobs()">🔄 Odśwież</button>
+            </div>
+            <div id="jobs-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Ładowanie zadań...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Populate time selects with XX:30 times
+        function populateTimeSelects() {
+            const timeSelects = ['cont-time', 'find-time', 'watch-time', 'cont-end-time', 'find-end-time', 'watch-end-time'];
+            timeSelects.forEach(selectId => {
+                const select = document.getElementById(selectId);
+                for (let hour = 6; hour < 19; hour++) {
+                    const timeStr = `${hour.toString().padStart(2, '0')}:30`;
+                    const option = document.createElement('option');
+                    option.value = timeStr;
+                    option.textContent = timeStr;
+                    select.appendChild(option);
+                }
+            });
+        }
+
+        // Set default dates
+        function setDefaultDates() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('cont-date').value = today;
+            document.getElementById('watch-date').value = today;
+        }
+
+        // Tab switching
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+
+            // Clear results
+            document.getElementById('results').innerHTML = '';
+        }
+
+        // API calls
+        async function submitContinuous() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const date = document.getElementById('cont-date').value;
+            const time = document.getElementById('cont-time').value;
+            const hours = parseInt(document.getElementById('cont-hours').value);
+            const end_time = document.getElementById('cont-end-time').value || null;
+            const num_courts = parseInt(document.getElementById('cont-courts').value);
+
+            if (!email || !password || !date || !time || !hours || !num_courts) {
+                showError('Proszę wypełnić wszystkie wymagane pola');
+                return;
+            }
+
+            const btn = document.getElementById('btn-continuous');
+            btn.disabled = true;
+            btn.textContent = 'Rezerwuję...';
+
+            try {
+                const formattedDate = formatDate(date);
+                const body = { email, password, date: formattedDate, start_time: time, hours, num_courts };
+                if (end_time) {
+                    body.end_time = end_time;
+                }
+
+                const response = await fetch('/api/reservations/continuous', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+                displayResults(data);
+                loadJobs();
+            } catch (error) {
+                showError('Błąd żądania: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Zarezerwuj';
+            }
+        }
+
+        async function submitFindSlot() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const date = document.getElementById('find-date').value;
+            const time = document.getElementById('find-time').value;
+            const hours = parseInt(document.getElementById('find-hours').value);
+            const end_time = document.getElementById('find-end-time').value || null;
+            const num_courts = parseInt(document.getElementById('find-courts').value);
+
+            if (!email || !password || !time || !hours || !num_courts) {
+                showError('Proszę wypełnić wszystkie wymagane pola');
+                return;
+            }
+
+            const btn = document.getElementById('btn-find');
+            btn.disabled = true;
+            btn.textContent = 'Szukam...';
+
+            try {
+                const body = { email, password, start_time: time, hours, num_courts };
+                if (date) {
+                    body.date = formatDate(date);
+                }
+                if (end_time) {
+                    body.end_time = end_time;
+                }
+
+                const response = await fetch('/api/reservations/find-slot', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+                displayResults(data);
+                loadJobs();
+            } catch (error) {
+                showError('Błąd żądania: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Znajdź i Zarezerwuj';
+            }
+        }
+
+        async function submitWatch() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const date = document.getElementById('watch-date').value;
+            const time = document.getElementById('watch-time').value;
+            const hours = parseInt(document.getElementById('watch-hours').value);
+            const end_time = document.getElementById('watch-end-time').value || null;
+            const num_courts = parseInt(document.getElementById('watch-courts').value);
+
+            if (!email || !password || !date || !time || !hours || !num_courts) {
+                showError('Proszę wypełnić wszystkie wymagane pola');
+                return;
+            }
+
+            const btn = document.getElementById('btn-watch');
+            btn.disabled = true;
+            btn.textContent = 'Uruchamiam...';
+
+            try {
+                const formattedDate = formatDate(date);
+                const body = { email, password, date: formattedDate, start_time: time, hours, num_courts };
+                if (end_time) {
+                    body.end_time = end_time;
+                }
+
+                const response = await fetch('/api/reservations/watch-for-cancellations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                const data = await response.json();
+                displayResults(data);
+                loadJobs();
+            } catch (error) {
+                showError('Błąd żądania: ' + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Uruchom Obserwator';
+            }
+        }
+
+        async function loadJobs() {
+            const email = document.getElementById('email').value;
+            if (!email) {
+                document.getElementById('jobs-container').innerHTML =
+                    '<div class="empty-state">Wprowadź email aby zobaczyć zadania</div>';
+                return;
+            }
+
+            document.getElementById('jobs-container').innerHTML =
+                '<div class="loading"><div class="spinner"></div><p>Ładowanie zadań...</p></div>';
+
+            try {
+                const response = await fetch(`/api/reservations/jobs?email=${encodeURIComponent(email)}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('jobs-container').innerHTML =
+                        `<div class="empty-state">Błąd ładowania zadań: ${data.message}</div>`;
+                    return;
+                }
+
+                displayJobs(data.jobs);
+            } catch (error) {
+                document.getElementById('jobs-container').innerHTML =
+                    `<div class="empty-state">Nie udało się załadować zadań: ${error.message}</div>`;
+            }
+        }
+
+        async function cancelJob(jobId) {
+            if (!confirm('Czy na pewno chcesz anulować to zadanie?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/reservations/job/${jobId}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    alert('Nie udało się anulować zadania: ' + data.message);
+                } else {
+                    loadJobs();
+                }
+            } catch (error) {
+                alert('Nie udało się anulować zadania: ' + error.message);
+            }
+        }
+
+        // Display functions
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            const resultsCard = document.getElementById('results-card');
+            let html = '';
+
+            // Show the results card
+            resultsCard.style.display = 'block';
+
+            // Message
+            const messageClass = data.error ? 'error' : 'success';
+            html += `<div class="result-message ${messageClass}">${data.message}</div>`;
+
+            // Stats
+            if (data.stats) {
+                html += `<div class="result-message info">
+                    ✅ Udane: ${data.stats.successful} |
+                    ❌ Nieudane: ${data.stats.failed} |
+                    📅 Zaplanowane: ${data.stats.scheduled}
+                </div>`;
+            }
+
+            // Reservations
+            if (data.reservations && data.reservations.length > 0) {
+                html += '<div class="reservations-list"><h3>Wykonane Rezerwacje</h3>';
+                data.reservations.forEach(res => {
+                    const statusClass = res.success ? 'success' : 'failed';
+                    const icon = res.success ? '✅' : '❌';
+                    html += `
+                        <div class="reservation-item ${statusClass}">
+                            <div>
+                                <strong>${res.date} ${res.time_slot}</strong> - Kort ${res.court}
+                                ${res.error_message ? `<br><small style="color: #e53e3e;">${res.error_message}</small>` : ''}
+                            </div>
+                            <div>${icon}</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            // Scheduled jobs info in results
+            if (data.scheduled_jobs && data.scheduled_jobs.length > 0) {
+                html += '<div class="result-message info" style="margin-top: 15px;">';
+                html += `<strong>📅 Zaplanowano ${data.scheduled_jobs.length} zadań</strong><br>`;
+                html += 'Sprawdź sekcję "Zaplanowane Zadania" poniżej aby zobaczyć szczegóły i zarządzać nimi.';
+                html += '</div>';
+            }
+
+            resultsDiv.innerHTML = html;
+
+            // Scroll to results
+            resultsCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function displayJobs(jobs) {
+            const container = document.getElementById('jobs-container');
+
+            if (!jobs || jobs.length === 0) {
+                container.innerHTML = '<div class="empty-state">Brak zaplanowanych zadań</div>';
+                return;
+            }
+
+            // Polish translations for job types and statuses
+            const jobTypeLabels = {
+                'one-time': 'jednorazowe',
+                'recurring': 'cykliczne'
+            };
+            const statusLabels = {
+                'scheduled': 'zaplanowane',
+                'running': 'w trakcie',
+                'retrying': 'ponowna próba',
+                'completed': 'ukończone',
+                'failed': 'nieudane',
+                'cancelled': 'anulowane',
+                'expired': 'wygasłe'
+            };
+
+            let html = '';
+            jobs.forEach(job => {
+                const canCancel = ['scheduled', 'running', 'retrying'].includes(job.status);
+                const courts = job.num_courts || 1;
+                const jobTypeLabel = jobTypeLabels[job.job_type] || job.job_type;
+                const statusLabel = statusLabels[job.status] || job.status;
+                const hourLabel = job.hours === 1 ? 'godzina' : (job.hours < 5 ? 'godziny' : 'godzin');
+                const courtLabel = courts === 1 ? 'kort' : (courts < 5 ? 'korty' : 'kortów');
+
+                html += `
+                    <div class="job-item">
+                        <div class="job-header">
+                            <div>
+                                <span class="job-type ${job.job_type}">${jobTypeLabel}</span>
+                                <span class="job-status ${job.status}">${statusLabel}</span>
+                            </div>
+                            ${canCancel ? `<button class="btn btn-danger" onclick="cancelJob('${job.job_id}')">Anuluj</button>` : ''}
+                        </div>
+                        <div class="job-details">
+                            <div><strong>ID zadania:</strong> ${job.job_id}</div>
+                            <div><strong>Rezerwacja:</strong> ${formatDateTime(job.reservation_datetime)}</div>
+                            <div><strong>Czas:</strong> ${job.hours} ${hourLabel} na ${courts} ${courtLabel}</div>
+                            <div><strong>Następne uruchomienie:</strong> ${formatDateTime(job.scheduled_for || job.run_time)}</div>
+                            ${job.check_count ? `<div><strong>Wykonane sprawdzenia:</strong> ${job.check_count}</div>` : ''}
+                            ${job.last_check ? `<div><strong>Ostatnie sprawdzenie:</strong> ${formatDateTime(job.last_check)}</div>` : ''}
+                            ${job.retry_count ? `<div><strong>Liczba prób:</strong> ${job.retry_count}</div>` : ''}
+                            ${job.next_retry ? `<div><strong>Następna próba:</strong> ${formatDateTime(job.next_retry)}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function showError(message) {
+            const resultsDiv = document.getElementById('results');
+            const resultsCard = document.getElementById('results-card');
+            resultsCard.style.display = 'block';
+            resultsDiv.innerHTML = `<div class="result-message error">${message}</div>`;
+        }
+
+        // Utility functions
+        function formatDate(dateStr) {
+            const [year, month, day] = dateStr.split('-');
+            return `${day}-${month}-${year}`;
+        }
+
+        function formatDateTime(isoStr) {
+            if (!isoStr) return 'N/A';
+            const date = new Date(isoStr);
+            return date.toLocaleString();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            populateTimeSelects();
+            setDefaultDates();
+
+            // Load jobs after a short delay to let user enter email
+            setTimeout(() => {
+                const email = document.getElementById('email').value;
+                if (email) loadJobs();
+            }, 500);
+        });
+    </script>
+</body>
+</html>
