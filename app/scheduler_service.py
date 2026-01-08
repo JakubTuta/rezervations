@@ -147,7 +147,7 @@ class SchedulerService:
             func=self._execute_reservation_with_retry,
             trigger="date",
             run_date=run_time,
-            args=[job_id, email, password, reservation_datetime, hours, num_courts],
+            args=[job_id, email, password, reservation_datetime, hours, num_courts, 0],
             id=job_id,
             replace_existing=True,
         )
