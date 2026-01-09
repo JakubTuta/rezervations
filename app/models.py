@@ -143,6 +143,7 @@ class ScheduledJobInfo(BaseModel):
     scheduled_for: str  # ISO datetime when job will run (or next run for recurring)
     reservation_datetime: str  # The actual reservation datetime
     hours: int
+    num_courts: int = 1  # Number of courts to reserve (1-4)
     status: str  # "scheduled", "running", "completed", "failed", "cancelled"
     email: Optional[str] = None  # Owner email
     created_at: Optional[str] = None

@@ -549,15 +549,28 @@
                 </div>
             </div>
         </div>
+
+        <!-- Test Cancel Reservation Card -->
+        <div class="card">
+            <h2>🧪 Test - Anuluj Rezerwację</h2>
+            <p style="color: #718096; margin-bottom: 20px;">Testowe narzędzie do anulowania rezerwacji po ID</p>
+            <div class="form-field">
+                <label for="test-reservation-id">ID Rezerwacji</label>
+                <input type="text" id="test-reservation-id" placeholder="np. 3472763" required>
+            </div>
+            <button class="btn btn-danger" onclick="testCancelReservation()">Anuluj Rezerwację</button>
+            <div id="test-cancel-result" style="margin-top: 15px;"></div>
+        </div>
     </div>
 
     <script>
         // Populate time selects with XX:30 times
         function populateTimeSelects() {
-            const timeSelects = ['cont-time', 'find-time', 'watch-time', 'cont-end-time', 'find-end-time', 'watch-end-time'];
-            timeSelects.forEach(selectId => {
+            // Start time selects (06:30 - 20:30)
+            const startTimeSelects = ['cont-time', 'find-time', 'watch-time'];
+            startTimeSelects.forEach(selectId => {
                 const select = document.getElementById(selectId);
-                for (let hour = 6; hour < 20; hour++) {
+                for (let hour = 6; hour <= 20; hour++) {
                     const timeStr = `${hour.toString().padStart(2, '0')}:30`;
                     const option = document.createElement('option');
                     option.value = timeStr;
@@ -565,6 +578,50 @@
                     select.appendChild(option);
                 }
             });
+
+            // End time selects (07:30 - 21:30, adjusted for Sunday to 20:30)
+            const endTimeSelects = ['cont-end-time', 'find-end-time', 'watch-end-time'];
+            endTimeSelects.forEach(selectId => {
+                const select = document.getElementById(selectId);
+                for (let hour = 7; hour <= 21; hour++) {
+                    const timeStr = `${hour.toString().padStart(2, '0')}:30`;
+                    const option = document.createElement('option');
+                    option.value = timeStr;
+                    option.textContent = timeStr;
+                    select.appendChild(option);
+                }
+            });
+        }
+
+        // Update end time options based on selected date (Sunday has max 20:30)
+        function updateEndTimeForDate(dateFieldId, endTimeFieldId) {
+            const dateField = document.getElementById(dateFieldId);
+            const endTimeField = document.getElementById(endTimeFieldId);
+
+            if (!dateField.value) return;
+
+            const selectedDate = new Date(dateField.value + 'T00:00:00');
+            const isSunday = selectedDate.getDay() === 0;
+
+            // Save current value
+            const currentValue = endTimeField.value;
+
+            // Clear and repopulate
+            endTimeField.innerHTML = '<option value="">Brak limitu...</option>';
+
+            const maxHour = isSunday ? 20 : 21;
+            for (let hour = 7; hour <= maxHour; hour++) {
+                const timeStr = `${hour.toString().padStart(2, '0')}:30`;
+                const option = document.createElement('option');
+                option.value = timeStr;
+                option.textContent = timeStr;
+                endTimeField.appendChild(option);
+            }
+
+            // Restore value if still valid
+            if (currentValue && parseInt(currentValue.split(':')[0]) <= maxHour) {
+                endTimeField.value = currentValue;
+            }
         }
 
         // Set default dates
@@ -766,6 +823,57 @@
             }
         }
 
+        async function testCancelReservation() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const reservationId = document.getElementById('test-reservation-id').value;
+            const resultDiv = document.getElementById('test-cancel-result');
+
+            if (!email || !password) {
+                resultDiv.innerHTML = '<div class="result-message error">Wprowadź email i hasło w górnej sekcji</div>';
+                return;
+            }
+
+            if (!reservationId) {
+                resultDiv.innerHTML = '<div class="result-message error">Wprowadź ID rezerwacji</div>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Anulowanie...</p></div>';
+
+            try {
+                const response = await fetch('/api/reservations/test/cancel-reservation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        email: email,
+                        password: password,
+                        reservation_id: reservationId
+                    })
+                });
+
+                const data = await response.json();
+
+                const messageClass = data.error ? 'error' : 'success';
+                const icon = data.cancelled ? '✅' : '❌';
+
+                resultDiv.innerHTML = `
+                    <div class="result-message ${messageClass}">
+                        ${icon} ${data.message}
+                        <br><small>ID: ${data.reservation_id}</small>
+                        ${data.status_code ? `<br><small>Status Code: ${data.status_code}</small>` : ''}
+                    </div>
+                `;
+
+                // Reload jobs if successful
+                if (data.cancelled) {
+                    setTimeout(loadJobs, 1000);
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result-message error">Błąd: ${error.message}</div>`;
+            }
+        }
+
         // Display functions
         function displayResults(data) {
             const resultsDiv = document.getElementById('results');
@@ -779,13 +887,32 @@
             const messageClass = data.error ? 'error' : 'success';
             html += `<div class="result-message ${messageClass}">${data.message}</div>`;
 
-            // Stats
+            // Calculate actual hours and courts from reservations
+            let actualHours = 0;
+            let actualCourts = 0;
+            if (data.reservations && data.reservations.length > 0) {
+                // Count unique time slots (hours)
+                const uniqueTimeSlots = new Set(data.reservations.map(r => r.time_slot));
+                actualHours = uniqueTimeSlots.size;
+
+                // Count unique courts used at any given time
+                const courtsPerTimeSlot = {};
+                data.reservations.forEach(r => {
+                    if (!courtsPerTimeSlot[r.time_slot]) {
+                        courtsPerTimeSlot[r.time_slot] = new Set();
+                    }
+                    courtsPerTimeSlot[r.time_slot].add(r.court);
+                });
+                actualCourts = Math.max(...Object.values(courtsPerTimeSlot).map(s => s.size));
+            }
+
+            // Stats with actual values
             if (data.stats) {
-                html += `<div class="result-message info">
-                    ✅ Udane: ${data.stats.successful} |
-                    ❌ Nieudane: ${data.stats.failed} |
-                    📅 Zaplanowane: ${data.stats.scheduled}
-                </div>`;
+                const statsHtml = actualHours > 0
+                    ? `✅ Udane: ${data.stats.successful} (${actualHours}h na ${actualCourts} ${actualCourts === 1 ? 'korcie' : 'kortach'}) | ❌ Nieudane: ${data.stats.failed} | 📅 Zaplanowane: ${data.stats.scheduled}`
+                    : `✅ Udane: ${data.stats.successful} | ❌ Nieudane: ${data.stats.failed} | 📅 Zaplanowane: ${data.stats.scheduled}`;
+
+                html += `<div class="result-message info">${statsHtml}</div>`;
             }
 
             // Reservations
@@ -809,8 +936,14 @@
 
             // Scheduled jobs info in results
             if (data.scheduled_jobs && data.scheduled_jobs.length > 0) {
+                const job = data.scheduled_jobs[0];
+                const jobHours = job.hours || 0;
+                const jobCourts = job.num_courts || 1;
+                const hourLabel = jobHours === 1 ? 'godzinę' : (jobHours < 5 ? 'godziny' : 'godzin');
+                const courtLabel = jobCourts === 1 ? 'kort' : (jobCourts < 5 ? 'korty' : 'kortów');
+
                 html += '<div class="result-message info" style="margin-top: 15px;">';
-                html += `<strong>📅 Zaplanowano ${data.scheduled_jobs.length} zadań</strong><br>`;
+                html += `<strong>📅 Zaplanowano zadanie: ${jobHours} ${hourLabel} na ${jobCourts} ${courtLabel}</strong><br>`;
                 html += 'Sprawdź sekcję "Zaplanowane Zadania" poniżej aby zobaczyć szczegóły i zarządzać nimi.';
                 html += '</div>';
             }
@@ -902,6 +1035,21 @@
         document.addEventListener('DOMContentLoaded', () => {
             populateTimeSelects();
             setDefaultDates();
+
+            // Add event listeners for date changes to update end time options
+            document.getElementById('cont-date').addEventListener('change', () => {
+                updateEndTimeForDate('cont-date', 'cont-end-time');
+            });
+            document.getElementById('find-date').addEventListener('change', () => {
+                updateEndTimeForDate('find-date', 'find-end-time');
+            });
+            document.getElementById('watch-date').addEventListener('change', () => {
+                updateEndTimeForDate('watch-date', 'watch-end-time');
+            });
+
+            // Initialize end times based on default dates
+            updateEndTimeForDate('cont-date', 'cont-end-time');
+            updateEndTimeForDate('watch-date', 'watch-end-time');
 
             // Load jobs after a short delay to let user enter email
             setTimeout(() => {
