@@ -73,7 +73,7 @@ async def make_continuous_reservations(request: Route1Request):
             # Make immediate reservations
             # If end_time is specified, search within the time window
             if request.end_time:
-                results = service.find_slot_in_time_window(
+                results = await service.find_slot_in_time_window(
                     reservation_datetime,
                     request.start_time,
                     request.end_time,
@@ -82,11 +82,22 @@ async def make_continuous_reservations(request: Route1Request):
                 )
             else:
                 # Try to book at the exact start time
-                results = service.make_continuous_reservations(
+                results = await service.make_continuous_reservations(
                     reservation_datetime, request.hours, request.num_courts
                 )
 
-            # Convert to response format
+            # Check if results contain errors (e.g., no availability)
+            if results and not results[0].get("success", False):
+                # Error case - return without converting to ReservationResult
+                return ReservationResponse(
+                    error=True,
+                    message=results[0].get("message", "Reservation failed"),
+                    reservations=[],
+                    scheduled_jobs=[],
+                    stats={"successful": 0, "failed": 1, "scheduled": 0},
+                )
+
+            # Convert successful results to response format
             reservation_results = []
             for r in results:
                 dt = r["datetime"]
@@ -186,7 +197,7 @@ async def find_available_slot(request: Route2Request):
                 # Try to make reservations
                 # If end_time is specified, search within the time window on this day
                 if request.end_time:
-                    results = service.find_slot_in_time_window(
+                    results = await service.find_slot_in_time_window(
                         current_datetime,
                         request.start_time,
                         request.end_time,
@@ -194,7 +205,7 @@ async def find_available_slot(request: Route2Request):
                         request.num_courts,
                     )
                 else:
-                    results = service.make_continuous_reservations(
+                    results = await service.make_continuous_reservations(
                         current_datetime, request.hours, request.num_courts
                     )
 
@@ -281,7 +292,7 @@ async def watch_for_cancellations(request: Route3Request):
 
             # If end_time is specified, search within the time window
             if request.end_time:
-                results = service.find_slot_in_time_window(
+                results = await service.find_slot_in_time_window(
                     reservation_datetime,
                     request.start_time,
                     request.end_time,
@@ -290,7 +301,7 @@ async def watch_for_cancellations(request: Route3Request):
                 )
             else:
                 # Try to book at the exact start time
-                results = service.make_continuous_reservations(
+                results = await service.make_continuous_reservations(
                     reservation_datetime, request.hours, request.num_courts
                 )
 

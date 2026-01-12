@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.routes import reservations
 from app.scheduler_service import scheduler_service
+from app.availability_scraper import close_scraper
 
 dotenv.load_dotenv()
 
@@ -18,7 +19,9 @@ dotenv.load_dotenv()
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     yield
+    # Cleanup on shutdown
     scheduler_service.shutdown()
+    await close_scraper()
 
 
 app = FastAPI(
@@ -46,11 +49,6 @@ async def root():
     if static_file.exists():
         return FileResponse("static/index.html")
     return {"message": "Sports Reservation API", "status": "running"}
-
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -179,7 +180,10 @@ class SchedulerService:
         try:
             # Create service and make reservations
             service = ReservationService(email, password)
-            results = service.make_continuous_reservations(reservation_datetime, hours, num_courts)
+            # Run async method in event loop
+            results = asyncio.run(
+                service.make_continuous_reservations(reservation_datetime, hours, num_courts)
+            )
 
             # Check if all succeeded
             all_success = all(r.get("success", False) for r in results)
@@ -359,7 +363,10 @@ class SchedulerService:
         try:
             # Create service and try to make reservations
             service = ReservationService(email, password)
-            results = service.make_continuous_reservations(reservation_datetime, hours, num_courts)
+            # Run async method in event loop
+            results = asyncio.run(
+                service.make_continuous_reservations(reservation_datetime, hours, num_courts)
+            )
 
             # Check if all succeeded
             all_success = all(r.get("success", False) for r in results)

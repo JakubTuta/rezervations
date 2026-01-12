@@ -1,12 +1,11 @@
 import pickle
-import re
 from datetime import datetime, timedelta
-from itertools import combinations
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import requests
-from bs4 import BeautifulSoup
+
+from app.availability_scraper import get_scraper
 
 
 class ReservationService:
@@ -14,7 +13,7 @@ class ReservationService:
 
     BASE_URL = "https://klient.zatokasportu.pl"
     SERVICE_ID = "33676"
-    COURT_IDS = [34631, 34632, 34633, 34634]
+    COURT_IDS = [34623, 34624, 34625, 34626]
     MAX_RESERVATION_MINUTES = 21600  # 15 days
 
     def __init__(self, email: str, password: str):
@@ -72,6 +71,74 @@ class ReservationService:
         if self._load_cookies() and self.is_session_valid():
             return True
         return self.login()
+
+    def get_playwright_cookies(self) -> List[Dict]:
+        """Convert requests session cookies to Playwright format"""
+        playwright_cookies = []
+        for cookie in self.session.cookies:
+            playwright_cookies.append(
+                {
+                    "name": cookie.name,
+                    "value": cookie.value,
+                    "domain": cookie.domain if cookie.domain else ".zatokasportu.pl",
+                    "path": cookie.path if cookie.path else "/",
+                    "expires": cookie.expires if cookie.expires else -1,
+                    "httpOnly": (
+                        cookie.has_nonstandard_attr("HttpOnly")
+                        if hasattr(cookie, "has_nonstandard_attr")
+                        else False
+                    ),
+                    "secure": cookie.secure if hasattr(cookie, "secure") else False,
+                    "sameSite": "Lax",
+                }
+            )
+        return playwright_cookies
+
+    async def check_slot_availability(
+        self, date: datetime, time: str, court_number: int
+    ) -> bool:
+        """
+        Check if a specific slot is available using the web scraper.
+
+        Args:
+            date: The date to check
+            time: Time in HH:MM format
+            court_number: Court number (1-4)
+
+        Returns:
+            True if available, False if taken or error occurred
+        """
+        try:
+            scraper = await get_scraper()
+            cookies = self.get_playwright_cookies()
+            return await scraper.is_slot_available(date, time, court_number, cookies)
+        except Exception as e:
+            # If scraper fails, return False (conservative approach)
+            return False
+
+    async def get_available_courts_for_time(
+        self, date: datetime, time: str
+    ) -> List[int]:
+        """
+        Get list of available court numbers for a specific date/time.
+
+        Args:
+            date: The date to check
+            time: Time in HH:MM format
+
+        Returns:
+            List of available court numbers (1-4)
+        """
+        try:
+            scraper = await get_scraper()
+            cookies = self.get_playwright_cookies()
+            available_slots = await scraper.get_available_slots(
+                date, time, time, cookies
+            )
+            return available_slots.get(time, [])
+        except Exception as e:
+            # If scraper fails, return empty list
+            return []
 
     def make_single_reservation(
         self, reservation_datetime: datetime, court_id: int
@@ -148,12 +215,12 @@ class ReservationService:
                 "reservation_id": None,
             }
 
-    def make_continuous_reservations(
+    async def make_continuous_reservations(
         self, start_datetime: datetime, hours: int, num_courts: int = 1
     ) -> List[Dict]:
         """
         Make continuous reservations for the specified hours.
-        Courts can change between hours, but we try to keep the same courts for continuity.
+        Uses scraper to check availability first, then books only confirmed available slots.
         Returns results only if we successfully book all requested hours.
         """
         if not self.ensure_authenticated():
@@ -167,115 +234,99 @@ class ReservationService:
                 }
             ]
 
-        # Generate court index combinations, prioritizing sequential courts
-        court_indices = list(range(4))
-        court_combinations = list(combinations(court_indices, num_courts))
+        # Check availability for all required hours using the scraper
+        try:
+            scraper = await get_scraper()
+            cookies = self.get_playwright_cookies()
+            start_time_str = start_datetime.strftime("%H:%M")
+            continuous_slots = await scraper.find_continuous_slots(
+                date=start_datetime,
+                start_time=start_time_str,
+                hours=hours,
+                num_courts=num_courts,
+                cookies=cookies,
+            )
 
-        def is_sequential(combo):
-            if len(combo) == 1:
-                return True
-            return all(combo[i + 1] - combo[i] == 1 for i in range(len(combo) - 1))
-
-        sequential = [c for c in court_combinations if is_sequential(c)]
-        non_sequential = [c for c in court_combinations if not is_sequential(c)]
-        sorted_combinations = sequential + non_sequential
-
-        # Track ALL reservations created during this call
-        all_created_reservations = []
-        results = []
-        last_used_courts = None
-
-        # Try to book each hour consecutively
-        for hour in range(hours):
-            current_time = start_datetime + timedelta(hours=hour)
-            hour_booked = False
-
-            # If we used specific courts in the previous hour, try to continue on them first
-            if last_used_courts is not None:
-                hour_results = []
-                all_success = True
-
-                for court_index in last_used_courts:
-                    court_id = self.COURT_IDS[court_index]
-                    result = self.make_single_reservation(current_time, court_id)
-                    result_with_meta = {
-                        **result,
-                        "court": court_index + 1,
-                        "hour_index": hour,
-                    }
-
-                    if result["success"]:
-                        hour_results.append(result_with_meta)
-                        all_created_reservations.append(result_with_meta)
-                    else:
-                        all_success = False
-                        break
-
-                if all_success:
-                    results.extend(hour_results)
-                    hour_booked = True
-
-            # If preferred courts didn't work, try any available combination
-            if not hour_booked:
-                for court_combo in sorted_combinations:
-                    hour_results = []
-                    all_success = True
-
-                    for court_index in court_combo:
-                        court_id = self.COURT_IDS[court_index]
-                        result = self.make_single_reservation(current_time, court_id)
-                        result_with_meta = {
-                            **result,
-                            "court": court_index + 1,
-                            "hour_index": hour,
-                        }
-
-                        if result["success"]:
-                            hour_results.append(result_with_meta)
-                            all_created_reservations.append(result_with_meta)
-                        else:
-                            all_success = False
-                            break
-
-                    if all_success:
-                        results.extend(hour_results)
-                        last_used_courts = court_combo
-                        hour_booked = True
-                        break
-
-            # If we couldn't book this hour at all, the entire attempt failed
-            if not hour_booked:
-                # Clean up ALL reservations created in this call
-                self._cleanup_unwanted_reservations([], all_created_reservations)
+            # If no continuous slots found, return error immediately
+            if not continuous_slots:
                 return [
                     {
                         "success": False,
-                        "message": f"Could not find available courts for hour {hour + 1} at {current_time.strftime('%H:%M')}",
-                        "datetime": current_time,
+                        "message": f"No {num_courts} continuous court(s) available for {hours} hours starting at {start_time_str}",
+                        "datetime": start_datetime,
                         "court_id": None,
                         "court": None,
                     }
                 ]
+        except Exception as e:
+            # If scraper fails, return error (no blind booking)
+            return [
+                {
+                    "success": False,
+                    "message": f"Unable to check availability: {str(e)}",
+                    "datetime": start_datetime,
+                    "court_id": None,
+                    "court": None,
+                }
+            ]
 
-        # Successfully booked all hours!
-        # Clean up any unwanted reservations from failed court attempts
-        self._cleanup_unwanted_reservations(results, all_created_reservations)
+        # Book the slots that scraper confirmed are available
+        results = []
+
+        for hour in range(hours):
+            current_time = start_datetime + timedelta(hours=hour)
+            time_slot, available_courts = continuous_slots[hour]
+
+            # Book each court for this hour
+            for court_number in available_courts:
+                court_id = self.COURT_IDS[
+                    court_number - 1
+                ]  # Convert 1-indexed to 0-indexed
+                result = self.make_single_reservation(current_time, court_id)
+                result_with_meta = {
+                    **result,
+                    "court": court_number,
+                    "hour_index": hour,
+                }
+                results.append(result_with_meta)
+
+                # If booking failed for a confirmed available slot, something went wrong
+                if not result["success"]:
+                    return [
+                        {
+                            "success": False,
+                            "message": f"Failed to book confirmed available slot at {time_slot} on court {court_number}: {result.get('message', 'Unknown error')}",
+                            "datetime": current_time,
+                            "court_id": court_id,
+                            "court": court_number,
+                        }
+                    ]
+
+        # All bookings successful
         return results
 
-    def find_slot_in_time_window(
-        self, date: datetime, start_time_str: str, end_time_str: str, hours: int, num_courts: int = 1
+    async def find_slot_in_time_window(
+        self,
+        date: datetime,
+        start_time_str: str,
+        end_time_str: str,
+        hours: int,
+        num_courts: int = 1,
     ) -> List[Dict]:
         """
         Search for available slot within a time window on a specific date.
+        Uses scraper to find available slots, then tries to book them.
         Tries every 30-minute interval from start_time to end_time.
         Returns empty list if no slot found.
         """
         # Parse start and end times
-        start_h, start_m = map(int, start_time_str.split(':'))
-        end_h, end_m = map(int, end_time_str.split(':'))
+        start_h, start_m = map(int, start_time_str.split(":"))
+        end_h, end_m = map(int, end_time_str.split(":"))
 
         # Create datetime objects for the search window
-        search_start = date.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        search_start = date.replace(
+            hour=start_h, minute=start_m, second=0, microsecond=0
+        )
         search_end = date.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
 
         # Calculate the latest possible start time for the requested hours
@@ -285,7 +336,9 @@ class ReservationService:
         # Try every 30-minute slot within the window
         current_slot = search_start
         while current_slot <= latest_start:
-            results = self.make_continuous_reservations(current_slot, hours, num_courts)
+            results = await self.make_continuous_reservations(
+                current_slot, hours, num_courts
+            )
 
             # Check if all succeeded
             if results and all(r.get("success", False) for r in results):
@@ -309,130 +362,3 @@ class ReservationService:
         return target_datetime - timedelta(
             minutes=ReservationService.MAX_RESERVATION_MINUTES
         )
-
-    def _scrape_reservations(self) -> List[Dict]:
-        """Scrape user's reservations page and return list of reservations"""
-        try:
-            url = f"{self.BASE_URL}/index.php?s=moje_konto_zajecia"
-            response = self.session.get(url, timeout=10)
-
-            if response.status_code != 200:
-                return []
-
-            soup = BeautifulSoup(response.text, "html.parser")
-            reservations = []
-
-            # Find all table rows in the reservations table
-            table = soup.find("table", id="pricelist")
-            if not table:
-                return []
-
-            rows = table.find("tbody").find_all("tr")
-
-            for row in rows:
-                cells = row.find_all("td")
-                if len(cells) < 4:
-                    continue
-
-                # Extract date and time (format: "13.01.2026 06:30")
-                date_cell = cells[1]  # data-content="Data"
-                date_text = date_cell.get_text(strip=True)
-
-                # Extract court name and number (from "Badminton - online / Kort 1 >> ...")
-                name_cell = cells[2]  # data-content="Nazwa"
-                name_text = name_cell.get_text(strip=True)
-
-                # Extract reservation ID
-                id_cell = cells[3]  # data-content="ID rezerwacji"
-                reservation_id = id_cell.get_text(strip=True)
-
-                # Parse court number from text like "Kort 1"
-                court_match = re.search(r"Kort\s+(\d+)", name_text)
-                court_number = int(court_match.group(1)) if court_match else None
-
-                # Parse datetime (format: "DD.MM.YYYY HH:MM")
-                try:
-                    reservation_dt = datetime.strptime(date_text, "%d.%m.%Y %H:%M")
-                except:
-                    continue
-
-                reservations.append(
-                    {
-                        "reservation_id": reservation_id,
-                        "datetime": reservation_dt,
-                        "court_number": court_number,
-                        "raw_text": name_text,
-                    }
-                )
-
-            return reservations
-
-        except Exception as e:
-            # Silently fail - don't break the booking if scraping fails
-            return []
-
-    def _cleanup_unwanted_reservations(
-        self, successful_results: List[Dict], all_created_reservations: List[Dict]
-    ) -> int:
-        """
-        Cancel unwanted reservations that were made during THIS API call but are not in the final successful result.
-        Only cancels reservations created during failed combination attempts in this call.
-        Returns the number of reservations cancelled.
-        """
-        if not successful_results or not all_created_reservations:
-            return 0
-
-        try:
-            # Build a set of (datetime, court_number) tuples for successful reservations
-            successful_slots = set()
-            for result in successful_results:
-                dt = result["datetime"]
-                court = result.get("court")
-                if dt and court:
-                    successful_slots.add((dt, court))
-
-            # Find reservations created in THIS call that are NOT in the final successful results
-            to_cancel_by_slot = []
-            for created in all_created_reservations:
-                dt = created["datetime"]
-                court = created.get("court")
-
-                # If this reservation is not in the successful final result, we need to cancel it
-                if (dt, court) not in successful_slots:
-                    to_cancel_by_slot.append((dt, court))
-
-            # If nothing to cancel, we're done
-            if not to_cancel_by_slot:
-                return 0
-
-            # Scrape the reservations page to get reservation IDs
-            all_reservations = self._scrape_reservations()
-            if not all_reservations:
-                return 0
-
-            # Match the reservations we want to cancel with their IDs
-            to_cancel_ids = []
-            for reservation in all_reservations:
-                res_dt = reservation["datetime"]
-                res_court = reservation["court_number"]
-
-                if (res_dt, res_court) in to_cancel_by_slot:
-                    to_cancel_ids.append(reservation["reservation_id"])
-
-            # Cancel the unwanted reservations
-            cancelled_count = 0
-            for reservation_id in to_cancel_ids:
-                try:
-                    cancel_url = f"{self.BASE_URL}/index.php?s=moje_konto_zajecia&a=anuluj&id={reservation_id}"
-                    response = self.session.get(cancel_url, timeout=10)
-                    if response.status_code == 200:
-                        cancelled_count += 1
-                except:
-                    # Continue even if one cancellation fails
-                    continue
-
-            return cancelled_count
-
-        except Exception as e:
-            # Silently fail - don't break the booking if cleanup fails
-            return 0

@@ -550,17 +550,6 @@
             </div>
         </div>
 
-        <!-- Test Cancel Reservation Card -->
-        <div class="card">
-            <h2>🧪 Test - Anuluj Rezerwację</h2>
-            <p style="color: #718096; margin-bottom: 20px;">Testowe narzędzie do anulowania rezerwacji po ID</p>
-            <div class="form-field">
-                <label for="test-reservation-id">ID Rezerwacji</label>
-                <input type="text" id="test-reservation-id" placeholder="np. 3472763" required>
-            </div>
-            <button class="btn btn-danger" onclick="testCancelReservation()">Anuluj Rezerwację</button>
-            <div id="test-cancel-result" style="margin-top: 15px;"></div>
-        </div>
     </div>
 
     <script>
@@ -820,57 +809,6 @@
                 }
             } catch (error) {
                 alert('Nie udało się anulować zadania: ' + error.message);
-            }
-        }
-
-        async function testCancelReservation() {
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            const reservationId = document.getElementById('test-reservation-id').value;
-            const resultDiv = document.getElementById('test-cancel-result');
-
-            if (!email || !password) {
-                resultDiv.innerHTML = '<div class="result-message error">Wprowadź email i hasło w górnej sekcji</div>';
-                return;
-            }
-
-            if (!reservationId) {
-                resultDiv.innerHTML = '<div class="result-message error">Wprowadź ID rezerwacji</div>';
-                return;
-            }
-
-            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div><p>Anulowanie...</p></div>';
-
-            try {
-                const response = await fetch('/api/reservations/test/cancel-reservation', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({
-                        email: email,
-                        password: password,
-                        reservation_id: reservationId
-                    })
-                });
-
-                const data = await response.json();
-
-                const messageClass = data.error ? 'error' : 'success';
-                const icon = data.cancelled ? '✅' : '❌';
-
-                resultDiv.innerHTML = `
-                    <div class="result-message ${messageClass}">
-                        ${icon} ${data.message}
-                        <br><small>ID: ${data.reservation_id}</small>
-                        ${data.status_code ? `<br><small>Status Code: ${data.status_code}</small>` : ''}
-                    </div>
-                `;
-
-                // Reload jobs if successful
-                if (data.cancelled) {
-                    setTimeout(loadJobs, 1000);
-                }
-            } catch (error) {
-                resultDiv.innerHTML = `<div class="result-message error">Błąd: ${error.message}</div>`;
             }
         }
 
