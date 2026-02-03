@@ -19,10 +19,10 @@ class AvailabilityScraper:
     """
     Scrapes court availability from the booking website.
     Green slots = available, Red slots = booked.
+    Court IDs are dynamically extracted from the page for each date.
     """
 
     BASE_URL = "https://klient.zatokasportu.pl"
-    COURT_IDS = [34623, 34624, 34625, 34626]  # IDs for courts 1-4
 
     def __init__(self):
         self.playwright: Optional[Playwright] = None
@@ -65,7 +65,7 @@ class AvailabilityScraper:
         start_time: str = "06:30",
         end_time: str = "21:30",
         cookies: Optional[List[Dict]] = None,
-    ) -> Dict[str, List[int]]:
+    ) -> Dict[str, Dict[int, int]]:
         """
         Get all available slots for a specific date within a time range.
 
@@ -76,8 +76,8 @@ class AvailabilityScraper:
             cookies: Optional list of cookies for authentication
 
         Returns:
-            Dict mapping time slots to list of available court numbers.
-            Example: {"06:30": [1, 2, 3], "07:30": [1, 3], ...}
+            Dict mapping time slots to dict of {court_number: court_id}.
+            Example: {"06:30": {1: 34403, 2: 34404}, "07:30": {1: 34403, 3: 34405}, ...}
         """
         async with self._lock:
             if not self.browser:
@@ -137,7 +137,7 @@ class AvailabilityScraper:
                 except Exception as e:
                     logger.warning(f"Error closing modals/alerts: {e}")
 
-                # Verify we're on the correct page
+                # Verify we're on the correct page by checking for court IDs
                 try:
                     court_ids = await page.evaluate(
                         """
@@ -152,18 +152,18 @@ class AvailabilityScraper:
                         }
                     """
                     )
-                    expected_badminton_ids = [34623, 34624, 34625, 34626]
-                    if court_ids and not any(
-                        cid in expected_badminton_ids for cid in court_ids
-                    ):
+                    # Just verify we found some court IDs (they vary by date)
+                    if not court_ids or len(court_ids) == 0:
                         logger.error(
-                            f"Wrong sport detected - expected badminton courts {expected_badminton_ids}, found {court_ids}"
+                            f"No court IDs found on page - may be wrong sport or page didn't load correctly"
                         )
                         return {}
+                    else:
+                        logger.info(f"Found {len(court_ids)} courts with IDs: {court_ids}")
                 except:
                     pass
 
-                # Extract availability data from the page
+                # Extract availability data from the page with court IDs
                 extracted_slots = await page.evaluate(
                     """
                     () => {
@@ -186,6 +186,23 @@ class AvailabilityScraper:
                         courtColumns.forEach((courtCol, courtIndex) => {
                             const courtNumber = courtIndex + 1;
 
+                            // Extract court ID from any slot in this column
+                            let courtId = null;
+                            const allSlots = courtCol.querySelectorAll('.i-table-event[data-link]');
+                            for (const slot of allSlots) {
+                                const dataLink = slot.getAttribute('data-link');
+                                if (dataLink) {
+                                    const match = dataLink.match(/id=(\d+)/);
+                                    if (match) {
+                                        courtId = parseInt(match[1]);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // If no court ID found, skip this column
+                            if (!courtId) return;
+
                             // Find all available slots (green divs with ZAREZERWUJ text)
                             const availableSlots = courtCol.querySelectorAll('.i-table-event.click');
 
@@ -203,18 +220,12 @@ class AvailabilityScraper:
                                     const timeStr = minutesToTime(timeInMinutes);
 
                                     if (!slots[timeStr]) {
-                                        slots[timeStr] = [];
+                                        slots[timeStr] = {};
                                     }
-                                    if (!slots[timeStr].includes(courtNumber)) {
-                                        slots[timeStr].push(courtNumber);
-                                    }
+                                    // Store court number -> court ID mapping
+                                    slots[timeStr][courtNumber] = courtId;
                                 }
                             });
-                        });
-
-                        // Sort court numbers in each time slot
-                        Object.keys(slots).forEach(time => {
-                            slots[time].sort((a, b) => a - b);
                         });
 
                         return slots;
@@ -262,7 +273,7 @@ class AvailabilityScraper:
             True if the slot is available, False otherwise
         """
         available_slots = await self.get_available_slots(date, time, time, cookies)
-        return court_number in available_slots.get(time, [])
+        return court_number in available_slots.get(time, {})
 
     async def find_continuous_slots(
         self,
@@ -272,7 +283,7 @@ class AvailabilityScraper:
         num_courts: int = 1,
         end_time: Optional[str] = None,
         cookies: Optional[List[Dict]] = None,
-    ) -> List[Tuple[str, List[int]]]:
+    ) -> List[Tuple[str, Dict[int, int]]]:
         """
         Find continuous available slots for the requested duration.
 
@@ -285,7 +296,7 @@ class AvailabilityScraper:
             cookies: Optional list of cookies for authentication
 
         Returns:
-            List of tuples (start_time, [court_numbers]) for each continuous hour.
+            List of tuples (start_time, {court_number: court_id}) for each continuous hour.
             Empty list if no continuous slots found.
         """
         # Get all available slots for the day
@@ -304,17 +315,28 @@ class AvailabilityScraper:
             required_times.append(time_dt.strftime("%H:%M"))
 
         # Find courts available for all required times
+        # Track both court numbers and their IDs
         continuous_courts = None
+        court_id_map = {}  # court_number -> court_id
+
         for time_slot in required_times:
             if time_slot not in available_slots:
                 return []
 
-            courts = set(available_slots[time_slot])
+            courts_at_time = available_slots[time_slot]  # {court_number: court_id}
+            court_numbers = set(courts_at_time.keys())
 
             if continuous_courts is None:
-                continuous_courts = courts
+                continuous_courts = court_numbers
+                court_id_map = courts_at_time.copy()
             else:
-                continuous_courts = continuous_courts.intersection(courts)
+                continuous_courts = continuous_courts.intersection(court_numbers)
+                # Keep court IDs for courts that remain available
+                court_id_map = {
+                    num: courts_at_time[num]
+                    for num in continuous_courts
+                    if num in courts_at_time
+                }
 
             # If no courts remain available for all times, fail early
             if len(continuous_courts) < num_courts:
@@ -323,10 +345,16 @@ class AvailabilityScraper:
         # Convert to list and select requested number of courts
         available_court_list = sorted(list(continuous_courts))[:num_courts]
 
-        # Build result: list of (time, courts) for each hour
+        # Build court_number -> court_id mapping for selected courts
+        selected_courts = {
+            court_num: court_id_map[court_num]
+            for court_num in available_court_list
+        }
+
+        # Build result: list of (time, {court_number: court_id}) for each hour
         result = []
         for time_slot in required_times:
-            result.append((time_slot, available_court_list))
+            result.append((time_slot, selected_courts))
 
         logger.info(
             f"Found {len(result)} continuous slots for {num_courts} court(s) starting at {start_time}"

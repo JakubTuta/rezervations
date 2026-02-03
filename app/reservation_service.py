@@ -13,8 +13,8 @@ class ReservationService:
 
     BASE_URL = "https://klient.zatokasportu.pl"
     SERVICE_ID = "33676"
-    COURT_IDS = [34623, 34624, 34625, 34626]
     MAX_RESERVATION_MINUTES = 21600  # 15 days
+    # Note: Court IDs are now dynamically scraped from the page for each date
 
     def __init__(self, email: str, password: str):
         self.email = email
@@ -135,7 +135,9 @@ class ReservationService:
             available_slots = await scraper.get_available_slots(
                 date, time, time, cookies
             )
-            return available_slots.get(time, [])
+            # available_slots[time] is now a dict {court_number: court_id}
+            courts_dict = available_slots.get(time, {})
+            return list(courts_dict.keys())
         except Exception as e:
             # If scraper fails, return empty list
             return []
@@ -277,11 +279,9 @@ class ReservationService:
             current_time = start_datetime + timedelta(hours=hour)
             time_slot, available_courts = continuous_slots[hour]
 
+            # available_courts is now a dict: {court_number: court_id}
             # Book each court for this hour
-            for court_number in available_courts:
-                court_id = self.COURT_IDS[
-                    court_number - 1
-                ]  # Convert 1-indexed to 0-indexed
+            for court_number, court_id in available_courts.items():
                 result = self.make_single_reservation(current_time, court_id)
                 result_with_meta = {
                     **result,
