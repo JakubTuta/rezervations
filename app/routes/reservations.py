@@ -86,8 +86,18 @@ async def make_continuous_reservations(request: Route1Request):
                     reservation_datetime, request.hours, request.num_courts
                 )
 
-            # Check if results contain errors (e.g., no availability)
-            if results and not results[0].get("success", False):
+            # Check if results are empty or contain errors
+            if not results:
+                # No slots found in the time window
+                return ReservationResponse(
+                    error=True,
+                    message=f"No continuous {request.hours}-hour slot found for {request.num_courts} court(s) between {request.start_time} and {request.end_time}",
+                    reservations=[],
+                    scheduled_jobs=[],
+                    stats={"successful": 0, "failed": 1, "scheduled": 0},
+                )
+
+            if not results[0].get("success", False):
                 # Error case - return without converting to ReservationResult
                 return ReservationResponse(
                     error=True,
@@ -210,7 +220,12 @@ async def find_available_slot(request: Route2Request):
                     )
 
                 # Check if all succeeded (continuous requirement)
-                all_success = results and all(r.get("success", False) for r in results)
+                # Empty results or failed results should both be treated as failure
+                all_success = (
+                    results
+                    and len(results) > 0
+                    and all(r.get("success", False) for r in results)
+                )
 
                 if all_success:
                     # Success! Return results
@@ -306,7 +321,8 @@ async def watch_for_cancellations(request: Route3Request):
                 )
 
             # Check if booking was successful
-            if results and all(r.get("success", False) for r in results):
+            # Empty results should be treated as failure
+            if results and len(results) > 0 and all(r.get("success", False) for r in results):
                 # Successfully booked! Return results
                 reservation_results = []
                 for r in results:

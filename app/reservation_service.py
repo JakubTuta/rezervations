@@ -1,3 +1,4 @@
+import logging
 import pickle
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -6,6 +7,9 @@ from typing import Dict, List
 import requests
 
 from app.availability_scraper import get_scraper
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 class ReservationService:
@@ -251,6 +255,9 @@ class ReservationService:
 
             # If no continuous slots found, return error immediately
             if not continuous_slots:
+                logger.info(
+                    f"No {num_courts} continuous court(s) available for {hours} hours starting at {start_time_str}"
+                )
                 return [
                     {
                         "success": False,
@@ -260,6 +267,13 @@ class ReservationService:
                         "court": None,
                     }
                 ]
+            else:
+                # Log which courts were found
+                _, courts_dict = continuous_slots[0]
+                court_numbers = list(courts_dict.keys())
+                logger.info(
+                    f"Found {len(court_numbers)} court(s) available for {hours} hours at {start_time_str}: courts {court_numbers}"
+                )
         except Exception as e:
             # If scraper fails, return error (no blind booking)
             return [
@@ -316,7 +330,7 @@ class ReservationService:
         """
         Search for available slot within a time window on a specific date.
         Uses scraper to find available slots, then tries to book them.
-        Tries every 30-minute interval from start_time to end_time.
+        Tries every XX:30 time slot (hourly intervals) from start_time to end_time.
         Returns empty list if no slot found.
         """
         # Parse start and end times
@@ -333,21 +347,43 @@ class ReservationService:
         required_duration = timedelta(hours=hours)
         latest_start = search_end - required_duration
 
-        # Try every 30-minute slot within the window
+        logger.info(
+            f"Searching for {hours}-hour slot from {start_time_str} to {end_time_str} "
+            f"(latest start: {latest_start.strftime('%H:%M')}) for {num_courts} court(s)"
+        )
+
+        # Try every XX:30 slot (hourly intervals) within the window
         current_slot = search_start
+        attempt = 0
         while current_slot <= latest_start:
+            attempt += 1
+            current_time_str = current_slot.strftime("%H:%M")
+            logger.info(f"Attempt {attempt}: Trying {current_time_str}...")
+
             results = await self.make_continuous_reservations(
                 current_slot, hours, num_courts
             )
 
             # Check if all succeeded
             if results and all(r.get("success", False) for r in results):
+                logger.info(f"Success! Found slot at {current_time_str}")
                 return results
+            else:
+                if results:
+                    logger.info(
+                        f"Failed at {current_time_str}: {results[0].get('message', 'Unknown error')}"
+                    )
+                else:
+                    logger.info(f"Failed at {current_time_str}: No results returned")
 
-            # Move to next 30-minute slot
-            current_slot += timedelta(minutes=30)
+            # Move to next hour (XX:30 intervals only)
+            current_slot += timedelta(hours=1)
 
         # No slot found in this time window
+        logger.warning(
+            f"No continuous {hours}-hour slot found for {num_courts} court(s) "
+            f"between {start_time_str} and {end_time_str} after {attempt} attempts"
+        )
         return []
 
     @staticmethod

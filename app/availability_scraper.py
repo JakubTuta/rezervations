@@ -287,16 +287,20 @@ class AvailabilityScraper:
         """
         Find continuous available slots for the requested duration.
 
+        Note: Courts can be DIFFERENT for each hour. We just need num_courts available
+        for each hour, not the same courts across all hours.
+
         Args:
             date: The date to check
             start_time: Earliest start time to consider
             hours: Number of continuous hours needed
-            num_courts: Number of courts needed simultaneously
+            num_courts: Number of courts needed simultaneously per hour
             end_time: Latest start time to consider (optional)
             cookies: Optional list of cookies for authentication
 
         Returns:
             List of tuples (start_time, {court_number: court_id}) for each continuous hour.
+            Courts may differ between hours.
             Empty list if no continuous slots found.
         """
         # Get all available slots for the day
@@ -314,50 +318,34 @@ class AvailabilityScraper:
             time_dt = start_dt + timedelta(hours=hour)
             required_times.append(time_dt.strftime("%H:%M"))
 
-        # Find courts available for all required times
-        # Track both court numbers and their IDs
-        continuous_courts = None
-        court_id_map = {}  # court_number -> court_id
-
+        # For each hour, pick available courts (can be different courts per hour)
+        result = []
         for time_slot in required_times:
             if time_slot not in available_slots:
+                # This hour has no available slots at all
+                logger.info(f"No courts available at {time_slot}")
                 return []
 
             courts_at_time = available_slots[time_slot]  # {court_number: court_id}
-            court_numbers = set(courts_at_time.keys())
 
-            if continuous_courts is None:
-                continuous_courts = court_numbers
-                court_id_map = courts_at_time.copy()
-            else:
-                continuous_courts = continuous_courts.intersection(court_numbers)
-                # Keep court IDs for courts that remain available
-                court_id_map = {
-                    num: courts_at_time[num]
-                    for num in continuous_courts
-                    if num in courts_at_time
-                }
-
-            # If no courts remain available for all times, fail early
-            if len(continuous_courts) < num_courts:
+            if len(courts_at_time) < num_courts:
+                # Not enough courts available at this hour
+                logger.info(
+                    f"Only {len(courts_at_time)} court(s) available at {time_slot}, need {num_courts}"
+                )
                 return []
 
-        # Convert to list and select requested number of courts
-        available_court_list = sorted(list(continuous_courts))[:num_courts]
+            # Pick the first num_courts available courts (sorted by court number)
+            available_court_numbers = sorted(list(courts_at_time.keys()))[:num_courts]
+            selected_courts = {
+                court_num: courts_at_time[court_num]
+                for court_num in available_court_numbers
+            }
 
-        # Build court_number -> court_id mapping for selected courts
-        selected_courts = {
-            court_num: court_id_map[court_num]
-            for court_num in available_court_list
-        }
-
-        # Build result: list of (time, {court_number: court_id}) for each hour
-        result = []
-        for time_slot in required_times:
             result.append((time_slot, selected_courts))
 
         logger.info(
-            f"Found {len(result)} continuous slots for {num_courts} court(s) starting at {start_time}"
+            f"Found {len(result)} continuous hours for {num_courts} court(s) starting at {start_time}"
         )
         return result
 
